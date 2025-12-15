@@ -1,15 +1,17 @@
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
-#include <vulkan/vulkan_raii.hpp>
+#	include <vulkan/vulkan_raii.hpp>
 #else
 import vulkan_hpp;
 #endif
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-
-#include <iostream>
-#include <stdexcept>
-#include <cstdlib>
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -24,7 +26,10 @@ public:
     }
 
 private:
-    GLFWwindow* window;
+    GLFWwindow *window = nullptr;
+
+    vk::raii::Context  context;
+    vk::raii::Instance instance = nullptr;
 
     void initWindow() {
         glfwInit();
@@ -36,6 +41,7 @@ private:
     }
 
     void initVulkan() {
+        createInstance();
     }
 
     void mainLoop() {
@@ -49,14 +55,45 @@ private:
 
         glfwTerminate();
     }
+
+    void createInstance() {
+        constexpr vk::ApplicationInfo appInfo = vk::ApplicationInfo()
+            .setPApplicationName( "Hello Triangle" )
+            .setApplicationVersion( VK_MAKE_VERSION( 1, 0, 0 ) )
+            .setPEngineName( "No Engine" )
+            .setEngineVersion( VK_MAKE_VERSION( 1, 0, 0 ) )
+            .setApiVersion( vk::ApiVersion14 );
+
+        uint32_t glfwExtensionCount = 0;
+        auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+        auto extensionProperties = context.enumerateInstanceExtensionProperties();
+        for (uint32_t i = 0; i < glfwExtensionCount; ++i)
+        {
+            if (std::ranges::none_of(extensionProperties,
+                                     [glfwExtension = glfwExtensions[i]](auto const& extensionProperty) {
+                                         return strcmp(extensionProperty.extensionName, glfwExtension) == 0;
+                                     }))
+            {
+                throw std::runtime_error("Required GLFW extension not supported: " + std::string(glfwExtensions[i]));
+            }
+        }
+
+        std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
+
+        vk::InstanceCreateInfo createInfo = vk::InstanceCreateInfo()
+            .setPApplicationInfo(&appInfo)
+            .setPEnabledExtensionNames(extensions);
+
+        instance = vk::raii::Instance(context, createInfo);
+    }
 };
 
-int main() {
-    HelloTriangleApplication app;
-
+int main(){
     try {
+        HelloTriangleApplication app;
         app.run();
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }
