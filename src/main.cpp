@@ -1,14 +1,11 @@
 #include <algorithm>
+#include <cassert>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 
-#if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #include <vulkan/vulkan_raii.hpp>
-#else
-import vulkan_hpp;
-#endif
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -17,7 +14,8 @@ constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 
 const std::vector<char const *> validationLayers = {
-    "VK_LAYER_KHRONOS_validation"};
+    "VK_LAYER_KHRONOS_validation"
+};
 
 
 #ifdef NDEBUG
@@ -26,11 +24,9 @@ constexpr bool enableValidationLayers = false;
 constexpr bool enableValidationLayers = true;
 #endif
 
-class HelloTriangleApplication
-{
+class HelloTriangleApplication {
 public:
-    void run()
-    {
+    void run() {
         initWindow();
         initVulkan();
         mainLoop();
@@ -46,16 +42,19 @@ private:
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
 
     vk::raii::PhysicalDevice physicalDevice = nullptr;
+    vk::raii::Device device = nullptr;
+
+    vk::raii::Queue graphicsQueue = nullptr;
 
     std::vector<const char *> requiredDeviceExtension = {
         vk::KHRSwapchainExtensionName,
         vk::KHRSpirv14ExtensionName,
         vk::KHRSynchronization2ExtensionName,
-        vk::KHRCreateRenderpass2ExtensionName};
+        vk::KHRCreateRenderpass2ExtensionName
+    };
 
 
-    void initWindow()
-    {
+    void initWindow() {
         glfwInit();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -64,15 +63,16 @@ private:
         window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
     }
 
-    void initVulkan()
-    {
+    void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        pickPhysicalDevice();
+        createLogicalDevice();
     }
 
     void pickPhysicalDevice() {
         std::vector<vk::raii::PhysicalDevice> devices = instance.enumeratePhysicalDevices();
-		const auto devIter = std::ranges::find_if(
+        const auto devIter = std::ranges::find_if(
             devices,
             [&](auto const &device) {
                 // Check if the device supports the Vulkan 1.3 API version
@@ -81,31 +81,98 @@ private:
                 // Check if any of the queue families support graphics operations
                 auto queueFamilies = device.getQueueFamilyProperties();
                 bool supportsGraphics =
-                    std::ranges::any_of(queueFamilies, [](auto const &qfp) { return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics); });
+                        std::ranges::any_of(queueFamilies, [](auto const &qfp) {
+                            return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);
+                        });
 
                 // Check if all required device extensions are available
                 auto availableDeviceExtensions = device.enumerateDeviceExtensionProperties();
                 bool supportsAllRequiredExtensions =
-                    std::ranges::all_of(requiredDeviceExtension,
-			                                                       [&availableDeviceExtensions](auto const &requiredDeviceExtension) {
-                                            return std::ranges::any_of(availableDeviceExtensions,
-				                                                                                  [requiredDeviceExtension](auto const &availableDeviceExtension) { return strcmp(availableDeviceExtension.extensionName, requiredDeviceExtension) == 0; });
-                                        });
+                        std::ranges::all_of(requiredDeviceExtension,
+                                            [&availableDeviceExtensions](auto const &requiredDeviceExtension) {
+                                                return std::ranges::any_of(availableDeviceExtensions,
+                                                                           [requiredDeviceExtension](
+                                                                       auto const &availableDeviceExtension) {
+                                                                               return strcmp(
+                                                                                       availableDeviceExtension.
+                                                                                       extensionName,
+                                                                                       requiredDeviceExtension) == 0;
+                                                                           });
+                                            });
 
-                auto features                 = device.template getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
-                bool supportsRequiredFeatures = features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
-                                                features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+                auto features = device.template getFeatures2<vk::PhysicalDeviceFeatures2,
+                    vk::PhysicalDeviceVulkan13Features, vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+                bool supportsRequiredFeatures = features.template get<vk::PhysicalDeviceVulkan13Features>().
+                                                dynamicRendering &&
+                                                features.template get<
+                                                    vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().
+                                                extendedDynamicState;
 
-                return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
+                return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions &&
+                       supportsRequiredFeatures;
             });
-		if (devIter != devices.end())
-		{
-			physicalDevice = *devIter;
-		}
-		else
-		{
-			throw std::runtime_error("failed to find a suitable GPU!");
-		}
+        if (devIter != devices.end()) {
+            physicalDevice = *devIter;
+        } else {
+            throw std::runtime_error("failed to find a suitable GPU!");
+        }
+    }
+
+    void createLogicalDevice() {
+        std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+
+
+        auto graphicsQueueFamilyProperty =
+                std::ranges::find_if(
+                    queueFamilyProperties,
+                    [](auto const &qfp) {
+                        return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);
+                    }
+                );
+
+        assert(graphicsQueueFamilyProperty != queueFamilyProperties.end() && "No graphics queue family found!");
+
+        auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(),
+                                                                 graphicsQueueFamilyProperty));
+        float queuePriority = 0.5f;
+
+        vk::DeviceQueueCreateInfo deviceQueueCreateInfo{
+            {},
+            graphicsIndex,
+            1,
+            &queuePriority
+        };
+
+        vk::PhysicalDeviceVulkan13Features features{};
+        features.dynamicRendering = VK_TRUE;
+
+        vk::StructureChain<
+            vk::PhysicalDeviceFeatures2,
+            vk::PhysicalDeviceVulkan13Features,
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+        > featureChain{
+            {},
+            features,
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{true}
+        };
+
+        std::vector deviceExtensions = {
+            vk::KHRSwapchainExtensionName,
+            vk::KHRSpirv14ExtensionName,
+            vk::KHRSynchronization2ExtensionName,
+            vk::KHRCreateRenderpass2ExtensionName
+        };
+
+        vk::DeviceCreateInfo deviceCreateInfo{};
+        deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
+        deviceCreateInfo.queueCreateInfoCount = 1;
+        deviceCreateInfo.pQueueCreateInfos = &deviceQueueCreateInfo;
+        deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+        deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+
+        device = vk::raii::Device(physicalDevice, deviceCreateInfo);
+
+        graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
     }
 
     void setupDebugMessenger() {
@@ -120,36 +187,32 @@ private:
             vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
 
         vk::DebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfoEXT = vk::DebugUtilsMessengerCreateInfoEXT()
-            .setMessageSeverity(severityFlags)
-            .setMessageType(messageTypeFlags)
-            .setPfnUserCallback(debugCallback);
+                .setMessageSeverity(severityFlags)
+                .setMessageType(messageTypeFlags)
+                .setPfnUserCallback(debugCallback);
 
         debugMessenger = instance.createDebugUtilsMessengerEXT(debugUtilsMessengerCreateInfoEXT);
     }
 
-    void mainLoop()
-    {
-        while (!glfwWindowShouldClose(window))
-        {
+    void mainLoop() {
+        while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
         }
     }
 
-    void cleanup()
-    {
+    void cleanup() {
         glfwDestroyWindow(window);
 
         glfwTerminate();
     }
 
-    void createInstance()
-    {
+    void createInstance() {
         constexpr vk::ApplicationInfo appInfo = vk::ApplicationInfo()
-            .setPApplicationName("Hello Triangle")
-            .setApplicationVersion(VK_MAKE_VERSION(1, 0, 0))
-            .setPEngineName("No Engine")
-            .setEngineVersion(VK_MAKE_VERSION(1, 0, 0))
-            .setApiVersion(vk::ApiVersion14);
+                .setPApplicationName("Hello Triangle")
+                .setApplicationVersion(VK_MAKE_VERSION(1, 0, 0))
+                .setPEngineName("No Engine")
+                .setEngineVersion(VK_MAKE_VERSION(1, 0, 0))
+                .setApiVersion(vk::ApiVersion14);
 
         // Get the required layers
         std::vector<char const *> requiredLayers;
@@ -159,22 +222,24 @@ private:
 
         // Check if the required layers are supported by the Vulkan implementation.
         auto layerProperties = context.enumerateInstanceLayerProperties();
-        if (std::ranges::any_of(requiredLayers, [&layerProperties](auto const &requiredLayer){ return std::ranges::none_of(layerProperties,
-                                                              [requiredLayer](auto const &layerProperty)
-                                                              { return strcmp(layerProperty.layerName, requiredLayer) == 0; }); }))
-        {
+        if (std::ranges::any_of(requiredLayers, [&layerProperties](auto const &requiredLayer) {
+            return std::ranges::none_of(layerProperties,
+                                        [requiredLayer](auto const &layerProperty) {
+                                            return strcmp(layerProperty.layerName,
+                                                          requiredLayer) == 0;
+                                        });
+        })) {
             throw std::runtime_error("One or more required layers are not supported!");
         }
 
         const auto requiredExtensions = getRequiredExtensions();
 
         auto extensionProperties = context.enumerateInstanceExtensionProperties();
-        for (auto const &requiredExtension : requiredExtensions)
-        {
+        for (auto const &requiredExtension: requiredExtensions) {
             if (std::ranges::none_of(extensionProperties,
-                                     [requiredExtension](auto const &extensionProperty)
-                                     { return strcmp(extensionProperty.extensionName, requiredExtension) == 0; }))
-            {
+                                     [requiredExtension](auto const &extensionProperty) {
+                                         return strcmp(extensionProperty.extensionName, requiredExtension) == 0;
+                                     })) {
                 throw std::runtime_error("Required extension not supported: " + std::string(requiredExtension));
             }
         }
@@ -186,40 +251,37 @@ private:
         instance = vk::raii::Instance(context, createInfo);
     }
 
-    std::vector<const char *> getRequiredExtensions()
-    {
+    std::vector<const char *> getRequiredExtensions() {
         uint32_t glfwExtensionCount = 0;
         const auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
 
         std::vector extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-        if (enableValidationLayers)
-        {
+        if (enableValidationLayers) {
             extensions.push_back(vk::EXTDebugUtilsExtensionName);
         }
 
         return extensions;
     }
 
-    static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity, vk::DebugUtilsMessageTypeFlagsEXT type, const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData, void *)
-    {
-        if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError || severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning)
-        {
-            std::cerr << "validation layer: type " << to_string(type) << " msg: " << pCallbackData->pMessage << std::endl;
+    static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
+                                                          vk::DebugUtilsMessageTypeFlagsEXT type,
+                                                          const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData,
+                                                          void *) {
+        if (severity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError || severity ==
+            vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning) {
+            std::cerr << "validation layer: type " << to_string(type) << " msg: " << pCallbackData->pMessage <<
+                    std::endl;
         }
 
         return vk::False;
     }
 };
 
-int main()
-{
-    try
-    {
+int main() {
+    try {
         HelloTriangleApplication app;
         app.run();
-    }
-    catch (const std::exception &e)
-    {
+    } catch (const std::exception &e) {
         std::cerr << e.what() << std::endl;
         return EXIT_FAILURE;
     }

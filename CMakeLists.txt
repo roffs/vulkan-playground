@@ -20,7 +20,6 @@ target_include_directories(vulkan_app SYSTEM PRIVATE
     C:/Users/Gerard/AppData/Local/.xmake/packages/g/glm/1.0.2/bbb3ed25088240d78f511829f81ea1ca/include
 )
 target_compile_definitions(vulkan_app PRIVATE
-    ENABLE_CPP20_MODULE=1
     GLFW_INCLUDE_NONE
 )
 target_compile_options(vulkan_app PRIVATE

@@ -3,8 +3,7 @@ set_version("0.1.0")
 
 add_rules("mode.debug", "mode.release")
 
-set_languages("cxx20")
-add_defines("ENABLE_CPP20_MODULE=1")
+set_languages("c++20")
 
 set_targetdir("bin")
 
