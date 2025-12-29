@@ -39,12 +39,14 @@ private:
     vk::raii::Context context;
     vk::raii::Instance instance = nullptr;
 
+    vk::raii::SurfaceKHR surface = nullptr;
+
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
 
     vk::raii::PhysicalDevice physicalDevice = nullptr;
     vk::raii::Device device = nullptr;
 
-    vk::raii::Queue graphicsQueue = nullptr;
+    vk::raii::Queue queue = nullptr;
 
     std::vector<const char *> requiredDeviceExtension = {
         vk::KHRSwapchainExtensionName,
@@ -66,8 +68,17 @@ private:
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
+    }
+
+    void createSurface() {
+        VkSurfaceKHR _surface;
+        if (glfwCreateWindowSurface(*instance, window, nullptr, &_surface) != 0) {
+            throw std::runtime_error("failed to create window surface!");
+        }
+        surface = vk::raii::SurfaceKHR(instance, _surface);
     }
 
     void pickPhysicalDevice() {
@@ -122,30 +133,22 @@ private:
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
 
 
-        auto graphicsQueueFamilyProperty =
-                std::ranges::find_if(
-                    queueFamilyProperties,
-                    [](auto const &qfp) {
-                        return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);
-                    }
-                );
+        uint32_t queueIndex = ~0;
+        for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++) {
+            if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
+                physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface)) {
+                // found a queue family that supports both graphics and present
+                queueIndex = qfpIndex;
+                break;
+            }
+        }
+        if (queueIndex == ~0) {
+            throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
+        }
 
-        assert(graphicsQueueFamilyProperty != queueFamilyProperties.end() && "No graphics queue family found!");
-
-        auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(),
-                                                                 graphicsQueueFamilyProperty));
-        float queuePriority = 0.5f;
-
-        vk::DeviceQueueCreateInfo deviceQueueCreateInfo{
-            {},
-            graphicsIndex,
-            1,
-            &queuePriority
-        };
-
+        // query for Vulkan 1.3 features
         vk::PhysicalDeviceVulkan13Features features{};
         features.dynamicRendering = VK_TRUE;
-
         vk::StructureChain<
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceVulkan13Features,
@@ -156,23 +159,26 @@ private:
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT{true}
         };
 
-        std::vector deviceExtensions = {
-            vk::KHRSwapchainExtensionName,
-            vk::KHRSpirv14ExtensionName,
-            vk::KHRSynchronization2ExtensionName,
-            vk::KHRCreateRenderpass2ExtensionName
+        // create a Device
+        float queuePriority = 0.5f;
+
+        vk::DeviceQueueCreateInfo deviceQueueCreateInfo{
+            {},
+            queueIndex,
+            1,
+            &queuePriority
         };
+
 
         vk::DeviceCreateInfo deviceCreateInfo{};
         deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
         deviceCreateInfo.queueCreateInfoCount = 1;
         deviceCreateInfo.pQueueCreateInfos = &deviceQueueCreateInfo;
-        deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
-        deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+        deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size());
+        deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtension.data();
 
         device = vk::raii::Device(physicalDevice, deviceCreateInfo);
-
-        graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+        queue = vk::raii::Queue(device, queueIndex, 0);
     }
 
     void setupDebugMessenger() {
