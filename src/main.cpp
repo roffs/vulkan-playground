@@ -54,6 +54,8 @@ private:
     vk::Extent2D swapChainExtent;
     vk::SurfaceFormatKHR swapChainSurfaceFormat;
 
+    std::vector<vk::raii::ImageView> swapChainImageViews;
+
     std::vector<const char *> deviceExtensions = {
         vk::KHRSwapchainExtensionName,
         vk::KHRSpirv14ExtensionName,
@@ -78,6 +80,7 @@ private:
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapChain();
+        createImageViews();
     }
 
     void createSurface() {
@@ -254,6 +257,19 @@ private:
             std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
             std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)
         };
+    }
+
+    void createImageViews() {
+        swapChainImageViews.clear();
+        vk::ImageViewCreateInfo imageViewCreateInfo{};
+        imageViewCreateInfo.viewType = vk::ImageViewType::e2D;
+        imageViewCreateInfo.format = swapChainSurfaceFormat.format;
+        imageViewCreateInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+
+        for (auto &image: swapChainImages) {
+            imageViewCreateInfo.image = image;
+            swapChainImageViews.emplace_back(device, imageViewCreateInfo);
+        }
     }
 
     void setupDebugMessenger() {
